@@ -597,7 +597,8 @@ export default class TwitchData extends Module {
 		}>(
 			await import(/* webpackChunkName: 'queries' */ './data/user-follow-info.gql'),
 			{ id, login, channelID: String(channel_id) },
-			{ errorPolicy: 'all' }
+			// Callers cache this themselves, and follow state changes often.
+			{ errorPolicy: 'all', fetchPolicy: 'network-only' }
 		);
 
 		const user = data?.data?.user;

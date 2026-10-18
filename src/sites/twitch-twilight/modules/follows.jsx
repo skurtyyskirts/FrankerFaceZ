@@ -15,6 +15,8 @@ const CACHE_TIME = 5 * 60 * 1000;
 // notification settings for an existing follow.
 const NEW_FOLLOW_WINDOW = 5 * 60 * 1000;
 
+const AUTO_MUTED_KEY = 'ffz_follows_auto_muted';
+
 
 export default class Follows extends Module {
 	constructor(...args) {
@@ -31,9 +33,12 @@ export default class Follows extends Module {
 
 		this.follow_cache = new Map;
 		this.muting = new Set;
+		// Incremented when a channel is unfollowed, to cancel pending auto-mutes.
+		this.follow_generation = new Map;
 		// Channels we've already turned notifications off for. If the user
-		// turns them back on, we leave them alone until they re-follow.
-		this.auto_muted = new Set;
+		// turns them back on, we leave them alone until they re-follow. This
+		// is persisted so it survives page reloads.
+		this.auto_muted = this.loadAutoMuted();
 
 		this.settings.add('metadata.follow-age', {
 			default: true,
@@ -184,7 +189,9 @@ export default class Follows extends Module {
 		if ( cached && Date.now() - cached.saved < CACHE_TIME )
 			return cached.promise;
 
-		const promise = this.twitch_data.getUserFollowed(channel_id)
+		// Always fetch from the network, since Apollo's cache isn't updated
+		// when following or unfollowing.
+		const promise = this.twitch_data.getUserFollowed(channel_id, null, true)
 			.then(data => data?.followedAt ? new Date(data.followedAt) : null)
 			.catch(err => {
 				this.log.warn('Unable to load follow state for channel.', err);
@@ -220,10 +227,12 @@ export default class Follows extends Module {
 		this.follow_cache.delete(target_id);
 		this.metadata.updateMetadata('follow-age');
 
-		if ( unfollowed )
-			this.auto_muted.delete(target_id);
+		if ( unfollowed ) {
+			this.follow_generation.set(target_id, (this.follow_generation.get(target_id) ?? 0) + 1);
+			if ( this.auto_muted.delete(target_id) )
+				this.saveAutoMuted();
 
-		else if ( ! followed.error?.code && input.disableNotifications === false )
+		} else if ( ! followed.error?.code && input.disableNotifications === false )
 			this.maybeDisableNotifications(target_id, followed.follow);
 	}
 
@@ -231,6 +240,8 @@ export default class Follows extends Module {
 	async maybeDisableNotifications(target_id, follow) {
 		if ( ! this.settings.get('follows.disable-notifications') || this.muting.has(target_id) || this.auto_muted.has(target_id) )
 			return;
+
+		const generation = this.follow_generation.get(target_id);
 
 		this.muting.add(target_id);
 		try {
@@ -247,8 +258,14 @@ export default class Follows extends Module {
 			if ( ! followed_at || Math.abs(now - new Date(followed_at).getTime()) > NEW_FOLLOW_WINDOW )
 				return;
 
+			// If the user unfollowed while we were checking, following again
+			// to change notifications would undo that.
+			if ( this.follow_generation.get(target_id) !== generation )
+				return;
+
 			this.log.info(`Disabling notifications for new follow of channel ${target_id}.`);
-			this.auto_muted.add(target_id);
+			this.auto_muted.set(target_id, Date.now());
+			this.saveAutoMuted();
 			await this.twitch_data.followUser(target_id, true);
 
 		} catch(err) {
@@ -257,5 +274,31 @@ export default class Follows extends Module {
 		} finally {
 			this.muting.delete(target_id);
 		}
+	}
+
+
+	loadAutoMuted() { // eslint-disable-line class-methods-use-this
+		const out = new Map;
+		try {
+			const data = JSON.parse(localStorage.getItem(AUTO_MUTED_KEY) || '{}'),
+				cutoff = Date.now() - NEW_FOLLOW_WINDOW * 2;
+
+			// Entries older than the new follow window can never match again.
+			for(const [id, time] of Object.entries(data))
+				if ( typeof time === 'number' && time > cutoff )
+					out.set(id, time);
+		} catch(err) { /* no-op */ }
+
+		return out;
+	}
+
+
+	saveAutoMuted() {
+		try {
+			if ( this.auto_muted.size )
+				localStorage.setItem(AUTO_MUTED_KEY, JSON.stringify(Object.fromEntries(this.auto_muted)));
+			else
+				localStorage.removeItem(AUTO_MUTED_KEY);
+		} catch(err) { /* no-op */ }
 	}
 }

@@ -199,7 +199,12 @@ body .chat-room .chat-line__message:not(.chat-line--inline):nth-child(1n+0)[data
 			el = inst._ffz_follow_info = (<div class="ffz--viewer-card-follow-info" />);
 		}
 
-		el._ffz_key = key;
+		if ( el._ffz_key !== key ) {
+			// Don't show the previous user's information while loading.
+			el._ffz_key = key;
+			setChildren(el, []);
+		}
+
 		el.classList.toggle('ffz--viewer-card-follow-info--fallback', container.fallback);
 
 		if ( el.parentElement !== container.parent ) {
@@ -222,7 +227,7 @@ body .chat-room .chat-line__message:not(.chat-line--inline):nth-child(1n+0)[data
 
 	renderFollowInfo(info) {
 		if ( ! info )
-			return null;
+			return [];
 
 		const out = [];
 
