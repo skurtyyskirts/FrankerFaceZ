@@ -25,6 +25,10 @@ type LOGIN = string | null;
 
 export type QueryResult<T> = {
 	data: T;
+	errors?: {
+		message: string;
+		path?: (string | number)[];
+	}[];
 	loading: boolean;
 	networkStatus: number;
 }
@@ -553,7 +557,7 @@ export default class TwitchData extends Module {
 	 * @param id The target channel's ID
 	 * @param login The target channel's login
 	 */
-	async getUserFollowed(id?: ID, login?: LOGIN) {
+	async getUserFollowed(id?: ID, login?: LOGIN, fresh = false) {
 		const data = await this.queryApollo<{
 			user: {
 				self: {
@@ -562,10 +566,56 @@ export default class TwitchData extends Module {
 			} | null;
 		}>(
 			await import(/* webpackChunkName: 'queries' */ './data/user-followed.gql'),
-			{ id, login }
+			{ id, login },
+			fresh ? { fetchPolicy: 'network-only' } : undefined
 		);
 
 		return data?.data?.user?.self?.follower;
+	}
+
+	/**
+	 * Look up when a user created their account, and when they followed
+	 * a given channel.
+	 *
+	 * `followedAt` is `null` when the user does not follow the channel and
+	 * `undefined` when Twitch did not return follow information.
+	 *
+	 * @param channel_id The ID of the channel to check for a follow.
+	 * @param id The target user's ID
+	 * @param login The target user's login
+	 */
+	async getUserFollowInfo(channel_id: ID, id?: ID, login?: LOGIN) {
+		const data = await this.queryApollo<{
+			user: {
+				id: string;
+				login: string;
+				createdAt: string | null;
+				relationship: {
+					followedAt: string | null;
+				} | null;
+			} | null;
+		}>(
+			await import(/* webpackChunkName: 'queries' */ './data/user-follow-info.gql'),
+			{ id, login, channelID: String(channel_id) },
+			// Callers cache this themselves, and follow state changes often.
+			{ errorPolicy: 'all', fetchPolicy: 'network-only' }
+		);
+
+		const user = data?.data?.user;
+		if ( ! user )
+			return null;
+
+		const failed = Array.isArray(data?.errors) && data.errors.some(err =>
+			Array.isArray(err?.path) && err.path.includes('relationship'));
+
+		return {
+			id: user.id,
+			login: user.login,
+			createdAt: user.createdAt ? new Date(user.createdAt) : null,
+			followedAt: failed
+				? undefined
+				: (user.relationship?.followedAt ? new Date(user.relationship.followedAt) : null)
+		};
 	}
 
 	/**
