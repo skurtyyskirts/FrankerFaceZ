@@ -206,7 +206,7 @@ export default class Apollo extends Module {
 					});
 
 				try {
-					this.apolloPostFlight(result);
+					this.apolloPostFlight(result, operation);
 				} catch(err) {
 					this.log.capture(err, {
 						tags: {
@@ -318,7 +318,12 @@ export default class Apollo extends Module {
 		}
 	}
 
-	apolloPostFlight(response) {
+	apolloPostFlight(response, request) {
+		// Generic listeners receive every response, including those
+		// without extensions, along with the variables that were sent.
+		if ( request && this.hasListeners(':response') )
+			this.emit(':response', request.operationName, response.data, request.variables);
+
 		if ( ! response.extensions )
 			return;
 

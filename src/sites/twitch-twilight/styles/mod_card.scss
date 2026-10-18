@@ -74,3 +74,25 @@
 	align-self: stretch;
 	align-items: center;
 }
+.ffz--viewer-card-follow-info {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.2rem 1rem;
+	font-size: 1.2rem;
+	line-height: 1.5;
+
+	&.ffz--viewer-card-follow-info--fallback {
+		padding: 0.5rem 1rem;
+	}
+
+	.ffz--follow-info-item {
+		display: inline-flex;
+		align-items: center;
+		white-space: nowrap;
+
+		> figure {
+			margin-right: 0.3rem;
+			opacity: 0.8;
+		}
+	}
+}

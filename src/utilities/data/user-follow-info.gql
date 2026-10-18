@@ -1,0 +1,10 @@
+query FFZ_UserFollowInfo($id: ID, $login: String, $channelID: ID!) {
+	user(id: $id, login: $login, lookupType: ALL) {
+		id
+		login
+		createdAt
+		relationship(targetUserID: $channelID) {
+			followedAt
+		}
+	}
+}
